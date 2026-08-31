@@ -10,9 +10,7 @@ type Status = 'setup' | 'paused' | 'done' | 'error'
 const NODES = ['read_source', 'summarize', 'fact_check'] as const
 
 export default function Page() {
-  const [sources, setSources] = useState<Src[]>([])
-  const [picked, setPicked] = useState<string[]>([])
-  const [uploads, setUploads] = useState<Src[]>([])
+  const [chosen, setChosen] = useState<Src[]>([])
   const [preview, setPreview] = useState<string | null>(null)
   const [overclaim, setOverclaim] = useState(true)
 
@@ -23,16 +21,6 @@ export default function Page() {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const autoRef = useRef(false)
-
-  useEffect(() => {
-    fetch('/api/sources')
-      .then((r) => r.json())
-      .then((d: Src[]) => {
-        setSources(d)
-        setPicked(d.map((s) => s.name))
-      })
-      .catch(() => setError('Could not read sources/ — is the dev server running?'))
-  }, [])
 
   const step = useCallback(
     async (id: string | null) => {
@@ -46,8 +34,8 @@ export default function Page() {
               ? { threadId: id }
               : {
                   overclaim,
-                  selected: picked,
-                  uploads: uploads.map((u) => ({ name: u.name, text: u.text })),
+                  selected: [],
+                  uploads: chosen.map((u) => ({ name: u.name, text: u.text })),
                 }
           ),
         })
@@ -65,7 +53,7 @@ export default function Page() {
         setBusy(null)
       }
     },
-    [overclaim, picked, uploads]
+    [overclaim, chosen]
   )
 
   const atEnd = idx >= steps.length - 1
@@ -120,97 +108,54 @@ export default function Page() {
         </h1>
         <p className="mt-3 max-w-2xl text-neutral-400">
           A LangGraph workflow that summarises local documents and refuses to publish any
-          claim it cannot ground in them. Runs entirely offline on Ollama · qwen2.5:3b.
+          claim it cannot ground in them. Fully offline — documents, graph and model all run
+          on this machine, on Ollama · qwen2.5:3b. No network calls, no API keys.
         </p>
 
         <section className="mt-12">
           <h2 className="text-sm font-semibold uppercase tracking-widest text-neutral-500">
             1 · Choose the sources
           </h2>
-          <p className="mt-2 text-sm text-neutral-500">
-            These are the only facts that will exist. Anything the summary says beyond them
-            is, by definition, unsupported.
+          <p className="mt-2 max-w-2xl text-sm text-neutral-500">
+            Pick one or more .txt files from this laptop. They become the only facts that
+            exist for the run — anything the summary says beyond them is, by definition,
+            unsupported. Sample documents ship in the project&apos;s{' '}
+            <code className="text-neutral-400">sources/</code> folder if you want them.
           </p>
-          <div className="mt-4 space-y-2">
-            {sources.map((s) => {
-              const on = picked.includes(s.name)
-              return (
-                <div
-                  key={s.name}
-                  className={`rounded-lg border transition ${
-                    on ? 'border-neutral-600 bg-[--color-panel]' : 'border-[--color-line] opacity-55'
-                  }`}
-                >
-                  <div className="flex items-center gap-4 p-4">
-                    <input
-                      type="checkbox"
-                      checked={on}
-                      onChange={() =>
-                        setPicked((p) =>
-                          on ? p.filter((n) => n !== s.name) : [...p, s.name]
-                        )
-                      }
-                      className="size-5 accent-emerald-400"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="font-mono text-sm text-neutral-200">{s.name}</p>
-                      <p className="truncate text-xs text-neutral-500">
-                        {s.words} words · {s.text.split('\n')[0]}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => setPreview(preview === s.name ? null : s.name)}
-                      className="shrink-0 rounded border border-[--color-line] px-3 py-1 text-xs text-neutral-400 hover:text-white"
-                    >
-                      {preview === s.name ? 'hide' : 'preview'}
-                    </button>
-                  </div>
-                  {preview === s.name && (
-                    <pre className="max-h-72 overflow-auto border-t border-[--color-line] p-4 text-xs leading-relaxed text-neutral-400">
-                      {s.text}
-                    </pre>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-          {uploads.map((u) => (
-            <div
-              key={u.name}
-              className="mt-2 rounded-lg border border-emerald-900 bg-[--color-panel]"
-            >
-              <div className="flex items-center gap-4 p-4">
-                <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
-                  yours
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="font-mono text-sm text-neutral-200">{u.name}</p>
-                  <p className="truncate text-xs text-neutral-500">
-                    {u.words} words · {u.text.split('\n')[0]}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setPreview(preview === u.name ? null : u.name)}
-                  className="shrink-0 rounded border border-[--color-line] px-3 py-1 text-xs text-neutral-400 hover:text-white"
-                >
-                  {preview === u.name ? 'hide' : 'preview'}
-                </button>
-                <button
-                  onClick={() => setUploads((p) => p.filter((x) => x.name !== u.name))}
-                  className="shrink-0 rounded border border-[--color-line] px-3 py-1 text-xs text-neutral-500 hover:border-red-800 hover:text-red-300"
-                >
-                  remove
-                </button>
-              </div>
-              {preview === u.name && (
-                <pre className="max-h-72 overflow-auto border-t border-[--color-line] p-4 text-xs leading-relaxed text-neutral-400">
-                  {u.text}
-                </pre>
-              )}
-            </div>
-          ))}
 
-          <label className="mt-4 flex cursor-pointer items-center justify-center gap-3 rounded-lg border border-dashed border-[--color-line] p-5 text-sm text-neutral-400 transition hover:border-neutral-600 hover:text-neutral-200">
+          <div className="mt-4 space-y-2">
+            {chosen.map((u) => (
+              <div key={u.name} className="rounded-lg border border-neutral-600 bg-[--color-panel]">
+                <div className="flex items-center gap-4 p-4">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-mono text-sm text-neutral-200">{u.name}</p>
+                    <p className="truncate text-xs text-neutral-500">
+                      {u.words} words · {u.text.split('\n').find((l) => l.trim()) ?? ''}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setPreview(preview === u.name ? null : u.name)}
+                    className="shrink-0 rounded border border-[--color-line] px-3 py-1 text-xs text-neutral-400 hover:text-white"
+                  >
+                    {preview === u.name ? 'hide' : 'preview'}
+                  </button>
+                  <button
+                    onClick={() => setChosen((p) => p.filter((x) => x.name !== u.name))}
+                    className="shrink-0 rounded border border-[--color-line] px-3 py-1 text-xs text-neutral-500 hover:border-red-800 hover:text-red-300"
+                  >
+                    remove
+                  </button>
+                </div>
+                {preview === u.name && (
+                  <pre className="max-h-72 overflow-auto border-t border-[--color-line] p-4 text-xs leading-relaxed text-neutral-400">
+                    {u.text}
+                  </pre>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <label className="mt-4 flex cursor-pointer items-center justify-center gap-3 rounded-lg border border-dashed border-[--color-line] p-6 text-sm text-neutral-400 transition hover:border-neutral-600 hover:text-neutral-200">
             <input
               type="file"
               accept=".txt,.md,text/plain,text/markdown"
@@ -225,18 +170,19 @@ export default function Page() {
                     return { name: f.name, words: text.trim().split(/\s+/).length, text }
                   })
                 )
-                setUploads((prev) => [
+                setChosen((prev) => [
                   ...prev.filter((p) => !read.some((r) => r.name === p.name)),
                   ...read,
                 ])
               }}
             />
-            + Add a .txt file from anywhere on this computer
+            {chosen.length ? 'Choose another .txt file' : 'Choose a .txt file from this laptop'}
           </label>
           <p className="mt-2 text-xs text-neutral-600">
-            Read in your browser and sent with the run — nothing is written to disk. Capped at
-            20,000 characters per file so it fits the model's context; you are told if a file
-            is trimmed.
+            Opens your normal file dialog and reads the file straight off the disk. Nothing is
+            sent anywhere — the page, the graph and the model all run on this machine, and the
+            app makes no internet request at any point. Files are capped at 20,000 characters
+            each so they fit the model&apos;s context; you are told if one gets trimmed.
           </p>
         </section>
 
@@ -266,18 +212,18 @@ export default function Page() {
 
         <button
           onClick={() => step(null)}
-          disabled={!picked.length && !uploads.length}
+          disabled={!chosen.length || !!busy}
           className="mt-10 rounded-md bg-white px-6 py-3 font-medium text-black transition hover:bg-neutral-200 disabled:opacity-40"
         >
           {busy
             ? 'starting…'
-            : `Start run with ${picked.length + uploads.length} source${
-                picked.length + uploads.length === 1 ? '' : 's'
-              }`}
+            : chosen.length
+              ? `Start run with ${chosen.length} source${chosen.length === 1 ? '' : 's'}`
+              : 'Choose a file first'}
         </button>
         {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
 
-        <Probe picked={picked} uploads={uploads} />
+        <Probe uploads={chosen} />
       </main>
     )
 

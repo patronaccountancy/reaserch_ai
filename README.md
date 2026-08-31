@@ -1,8 +1,12 @@
 # Multi-Step Research Summarizer Graph
 
 A three-node LangGraph workflow that summarises a set of **local** text files and refuses
-to publish a summary until every claim in it is grounded in those files. No internet, no
-hosted model — Ollama running `qwen2.5:3b` locally.
+to publish a summary until every claim in it is grounded in those files.
+
+**Everything runs on the laptop.** The page, the graph, the fact-checker and the model are
+all local; the app makes no internet request at any point and needs no API key. The only
+URLs in the repo are in `scripts/setup.mjs`, for the one-time Ollama install. Pull the
+network cable and it still works.
 
 ```
 START → read_source → summarize → fact_check ─┬─→ END
@@ -39,11 +43,10 @@ Overrides: `OLLAMA_HOST`, `OLLAMA_MODEL`, `SKIP_SETUP=1`. `npm run setup` runs i
 
 The app is a **stepper, not a batch job**. Nothing runs until you press a key:
 
-1. **Pick your sources.** Tick the bundled files, preview any of them inline, and/or
-   **add any `.txt` from anywhere on the machine** with the file picker — a classmate's
-   notes, a page pasted from a paper, anything. Uploaded files are read in the browser and
-   sent with the run; nothing is written to disk. Whatever you leave out stops being
-   provable — deselect the field trial and watch claims about outdoor performance fail.
+1. **Choose your sources.** The picker opens your normal OS file dialog — take any `.txt`
+   from anywhere on the machine. Sample documents ship in [sources/](sources/) if you want
+   them, but nothing is preloaded: whatever you pick *is* the universe of provable facts,
+   and anything the summary says beyond it is unsupported by definition.
 
    Bringing an unseen document is the strongest way to show the checker is not tuned to the
    demo. A one-paragraph Mars sample-return note dropped in cold gave: *"Tube 21 contained a
@@ -89,7 +92,7 @@ npm run trace -- --no-sabotage   # honest first pass, usually ends with 0 loop-b
 
 | File | What it is |
 | --- | --- |
-| [sources/](sources/) | The three mock sources — a lab report, a trade-press brief, a field-trial note, all on perovskite solar cells. Deliberately hedged and full of specific figures. |
+| [sources/](sources/) | Three sample documents — a lab report, a trade-press brief, a field-trial note, all on perovskite solar cells. Deliberately hedged and full of specific figures. Nothing loads them automatically; pick them in the file dialog like any other file. They are also what `npm run check` and `npm run trace` use. |
 | [lib/checks.ts](lib/checks.ts) | The deterministic half of fact-checking. Pure functions, no model. |
 | [lib/graph.ts](lib/graph.ts) | The LangGraph `StateGraph`: nodes, state channels, and the conditional edge that loops. |
 | [lib/ollama.ts](lib/ollama.ts) | ~30 lines of `fetch` against `/api/chat`. |

@@ -13,10 +13,8 @@ const PROMPTS = [
  * Fastest way to answer "how does it decide?" — let someone try to sneak one past it.
  */
 export function Probe({
-  picked,
   uploads = [],
 }: {
-  picked: string[]
   uploads?: { name: string; text: string }[]
 }) {
   const [claim, setClaim] = useState('')
@@ -33,7 +31,7 @@ export function Probe({
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           claim: text,
-          selected: picked,
+          selected: [],
           uploads: uploads.map((u) => ({ name: u.name, text: u.text })),
         }),
       })
