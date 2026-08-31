@@ -6,7 +6,5 @@
   --color-line: #232830;
 }
 
-/* Projector-friendly: every Tailwind size is rem-based, so this scales the
-   whole UI -- type and spacing alike -- instead of touching each class. */
-html { color-scheme: dark; font-size: 20px; }
+html { color-scheme: dark; }
 body { background: var(--color-ink); }
