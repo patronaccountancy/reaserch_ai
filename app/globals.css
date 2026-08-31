@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0b0d10;
+  --color-panel: #12151a;
+  --color-line: #232830;
+}
+
+html { color-scheme: dark; }
+body { background: var(--color-ink); }

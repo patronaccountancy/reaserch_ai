@@ -1,0 +1,23 @@
+FIELD TRIAL NOTE — Rooftop Array, Site 7 (Coastal, Humid Subtropical)
+Reporting period: June 2024 to May 2025
+
+Site 7 hosts 48 perovskite-silicon tandem modules alongside a reference string
+of 48 conventional silicon modules. Both strings share the same inverter model,
+tilt and azimuth.
+
+Over the twelve-month reporting period the tandem string produced 9 percent more
+energy per installed watt-peak than the silicon reference string. The advantage
+was largest in the cooler months and narrowed to near zero during the humid
+July-August period.
+
+Four tandem modules were removed from service during the period. Three showed
+visible delamination at the module edge; one failed after a junction-box water
+ingress event that also affected two silicon modules. No silicon modules were
+removed for delamination.
+
+Measured degradation across the surviving tandem modules averaged 3.1 percent
+over the twelve months, against 0.6 percent for the silicon reference. Twelve
+months is too short a window to extrapolate a lifetime degradation rate, and we
+do not do so here.
+
+This is a single site. Results should not be generalised to other climates.

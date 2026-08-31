@@ -1,0 +1,24 @@
+INTERNAL LAB REPORT — Perovskite Tandem Cell Line B
+Date: 11 March 2025
+Author: Materials Characterisation Group
+
+Cell B-14, a silicon/perovskite tandem, reached a certified power conversion
+efficiency of 27.4 percent under standard AM1.5G illumination. This is the
+highest figure recorded on Line B to date. The previous best on the same line
+was 25.9 percent, measured in November 2024.
+
+The active perovskite layer used a formamidinium-caesium mixed cation
+composition deposited by two-step vapour-assisted coating. Average layer
+thickness across the batch was 640 nanometres.
+
+Stability remains the limiting factor. Under continuous one-sun illumination at
+65 degrees Celsius, cell B-14 retained 82 percent of its initial efficiency
+after 1,000 hours. Three sibling cells from the same batch retained between 74
+and 80 percent over the same period. We did not test beyond 1,000 hours.
+
+Encapsulation was a single-layer glass-glass stack with a butyl rubber edge
+seal. Cells without encapsulation degraded below 50 percent of initial
+efficiency within 200 hours in the same conditions.
+
+We make no claim about outdoor performance. All measurements in this report were
+taken indoors under controlled conditions.

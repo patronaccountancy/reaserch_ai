@@ -1,0 +1,22 @@
+TRADE PRESS BRIEF — "Perovskites edge closer to the field"
+Solar Manufacturing Weekly, Issue 214, April 2025
+
+Several manufacturers have moved perovskite-silicon tandem modules from the lab
+bench to pilot production lines this year. Analysts at Grieve & Co. estimate
+that pilot-scale annual capacity across all announced European lines totals
+roughly 300 megawatts, a small fraction of the multi-gigawatt silicon industry.
+
+Costs remain uncertain. Grieve & Co. put current pilot-line module cost at
+between 0.34 and 0.52 dollars per watt, compared with about 0.11 dollars per
+watt for mature silicon modules. The analysts stress that these pilot figures
+are not representative of mass production and decline to forecast a crossover
+date.
+
+Two obstacles are repeatedly cited by manufacturers: long-term stability under
+heat and humidity, and the lack of an accepted accelerated-ageing standard for
+perovskite devices. The IEC working group on the subject has not published a
+final test protocol.
+
+No commercial perovskite tandem module currently carries a 25-year performance
+warranty. The longest warranty offered by any of the manufacturers contacted for
+this brief was 10 years.
