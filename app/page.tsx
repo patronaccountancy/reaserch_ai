@@ -11,80 +11,102 @@ const NODES = ['read_source', 'summarize', 'fact_check'] as const
 export default function Page() {
   const [chosen, setChosen] = useState<Src[]>([])
   const [preview, setPreview] = useState<string | null>(null)
-  const [overclaim, setOverclaim] = useState(true)
-  const [setupStep, setSetupStep] = useState(0)
 
   const [status, setStatus] = useState<Status>('setup')
-  const [threadId, setThreadId] = useState<string | null>(null)
   const [steps, setSteps] = useState<Ev[]>([])
   const [idx, setIdx] = useState(0)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const autoRef = useRef(false)
+  const inflight = useRef(false)
+  const wantNext = useRef(false)
+  const stalled = useRef(false)
+  const threadRef = useRef<string | null>(null)
 
-  const step = useCallback(
-    async (id: string | null) => {
-      setBusy(id ? 'thinking…' : 'reading sources…')
+  /**
+   * Runs one graph node and appends its events. It does NOT move the cursor —
+   * the presenter's position only changes when they press Next, so the next
+   * node can be computed in the background while they are still talking.
+   */
+  const advance = useCallback(
+    async (fresh: boolean) => {
+      if (inflight.current) return
+      inflight.current = true
+      setBusy(fresh ? 'reading sources…' : 'thinking…')
       try {
         const res = await fetch('/api/step', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(
-            id
-              ? { threadId: id }
-              : {
-                  overclaim,
+            fresh
+              ? {
+                  // Step 4 of the brief: revision 0 always over-claims once, so
+                  // the fact_check -> summarize loop-back is shown live.
+                  overclaim: true,
                   selected: [],
                   uploads: chosen.map((u) => ({ name: u.name, text: u.text })),
                 }
+              : { threadId: threadRef.current }
           ),
         })
         const d = await res.json()
-        setThreadId(d.threadId)
+        threadRef.current = d.threadId
         setStatus(d.status)
         if (d.message) setError(d.message)
-        setSteps((prev) => {
-          const next = [...prev, ...d.events]
-          setIdx(prev.length)
-          return next
-        })
+        // A node that emits nothing would make the prefetch loop spin forever.
+        stalled.current = !d.events?.length
+        if (d.events?.length) {
+          setSteps((p) => [...p, ...d.events])
+          if (fresh) setIdx(0)
+          else if (wantNext.current) setIdx((i) => i + 1)
+        }
+        wantNext.current = false
         return d
       } finally {
+        inflight.current = false
         setBusy(null)
       }
     },
-    [overclaim, chosen]
+    [chosen]
   )
 
   const atEnd = idx >= steps.length - 1
-  const canAdvance = !busy && (!atEnd || status === 'paused')
+  const canAdvance = !atEnd || status === 'paused'
+
+  // Keep exactly one node ahead: the moment the presenter reaches the last
+  // event we have, start computing the next one without waiting for a press.
+  useEffect(() => {
+    if (status !== 'paused' || !atEnd || autoRef.current) return
+    if (inflight.current || stalled.current || !threadRef.current) return
+    void advance(false)
+  }, [status, atEnd, steps.length, idx, advance])
 
   const next = useCallback(() => {
-    if (busy) return
     if (!atEnd) return setIdx((i) => i + 1)
-    if (status === 'paused' && threadId) void step(threadId)
-  }, [busy, atEnd, status, threadId, step])
+    // Already at the newest event: queue the jump for when the node lands.
+    if (status === 'paused') wantNext.current = true
+  }, [atEnd, status])
 
-  const prev = () => !busy && setIdx((i) => Math.max(0, i - 1))
+  const prev = () => setIdx((i) => Math.max(0, i - 1))
 
   async function runToEnd() {
     if (autoRef.current) return (autoRef.current = false)
     autoRef.current = true
-    let id = threadId
     while (autoRef.current) {
-      const d = await step(id)
-      id = d.threadId
-      if (d.status !== 'paused') break
+      const d = await advance(false)
+      if (!d || d.status !== 'paused') break
     }
     autoRef.current = false
-    setIdx((i) => Math.max(i, steps.length))
+    setIdx(() => Math.max(0, steps.length - 1))
   }
 
   function restart() {
     autoRef.current = false
+    inflight.current = false
+    wantNext.current = false
+    stalled.current = false
+    threadRef.current = null
     setStatus('setup')
-    setSetupStep(0)
-    setThreadId(null)
     setSteps([])
     setIdx(0)
     setError(null)
@@ -108,138 +130,67 @@ export default function Page() {
           Multi-Step Research Summarizer Graph
         </h1>
 
-        <p className="mt-8 text-xs font-semibold uppercase tracking-widest text-neutral-600">
-          setup · step {setupStep + 1} of 2
-        </p>
-
-        <section className={setupStep === 0 ? 'mt-6' : 'hidden'}>
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-neutral-500">
-            1 · Choose the sources
-          </h2>
-          <p className="mt-2 max-w-2xl text-sm text-neutral-500">
-            Pick one or more .txt files from this laptop. They become the only facts that
-            exist for the run — anything the summary says beyond them is, by definition,
-            unsupported. Sample documents ship in the project&apos;s{' '}
-            <code className="text-neutral-400">sources/</code> folder if you want them.
-          </p>
-
-          <div className="mt-4 space-y-2">
-            {chosen.map((u) => (
-              <div key={u.name} className="rounded-lg border border-neutral-600 bg-[--color-panel]">
-                <div className="flex items-center gap-4 p-4">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-mono text-sm text-neutral-200">{u.name}</p>
-                    <p className="truncate text-xs text-neutral-500">
-                      {u.words} words · {u.text.split('\n').find((l) => l.trim()) ?? ''}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setPreview(preview === u.name ? null : u.name)}
-                    className="shrink-0 rounded border border-[--color-line] px-3 py-1 text-xs text-neutral-400 hover:text-white"
-                  >
-                    {preview === u.name ? 'hide' : 'preview'}
-                  </button>
-                  <button
-                    onClick={() => setChosen((p) => p.filter((x) => x.name !== u.name))}
-                    className="shrink-0 rounded border border-[--color-line] px-3 py-1 text-xs text-neutral-500 hover:border-red-800 hover:text-red-300"
-                  >
-                    remove
-                  </button>
+        <div className="mt-10 space-y-2">
+          {chosen.map((u) => (
+            <div key={u.name} className="rounded-lg border border-neutral-600 bg-[--color-panel]">
+              <div className="flex items-center gap-4 p-4">
+                <div className="min-w-0 flex-1">
+                  <p className="font-mono text-sm text-neutral-200">{u.name}</p>
+                  <p className="text-xs text-neutral-500">{u.words} words</p>
                 </div>
-                {preview === u.name && (
-                  <pre className="max-h-72 overflow-auto border-t border-[--color-line] p-4 text-xs leading-relaxed text-neutral-400">
-                    {u.text}
-                  </pre>
-                )}
+                <button
+                  onClick={() => setPreview(preview === u.name ? null : u.name)}
+                  className="shrink-0 rounded border border-[--color-line] px-3 py-1 text-xs text-neutral-400 hover:text-white"
+                >
+                  {preview === u.name ? 'hide' : 'preview'}
+                </button>
+                <button
+                  onClick={() => setChosen((p) => p.filter((x) => x.name !== u.name))}
+                  className="shrink-0 rounded border border-[--color-line] px-3 py-1 text-xs text-neutral-500 hover:border-red-800 hover:text-red-300"
+                >
+                  remove
+                </button>
               </div>
-            ))}
-          </div>
-
-          <label className="mt-4 flex cursor-pointer items-center justify-center gap-3 rounded-lg border border-dashed border-[--color-line] p-6 text-sm text-neutral-400 transition hover:border-neutral-600 hover:text-neutral-200">
-            <input
-              type="file"
-              accept=".txt,.md,text/plain,text/markdown"
-              multiple
-              className="hidden"
-              onChange={async (e) => {
-                const files = [...(e.target.files ?? [])]
-                e.target.value = ''
-                const read = await Promise.all(
-                  files.map(async (f) => {
-                    const text = await f.text()
-                    return { name: f.name, words: text.trim().split(/\s+/).length, text }
-                  })
-                )
-                setChosen((prev) => [
-                  ...prev.filter((p) => !read.some((r) => r.name === p.name)),
-                  ...read,
-                ])
-              }}
-            />
-            {chosen.length ? 'Choose another .txt file' : 'Choose a .txt file from this laptop'}
-          </label>
-          <p className="mt-2 text-xs text-neutral-600">
-            Opens your normal file dialog and reads the file straight off the disk. Nothing is
-            sent anywhere — the page, the graph and the model all run on this machine, and the
-            app makes no internet request at any point. Files are capped at 20,000 characters
-            each so they fit the model&apos;s context; you are told if one gets trimmed.
-          </p>
-        </section>
-
-        <section className={setupStep === 1 ? 'mt-6' : 'hidden'}>
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-neutral-500">
-            2 · Sabotage the first pass?
-          </h2>
-          <label className="mt-3 flex cursor-pointer items-start gap-4 rounded-lg border border-[--color-line] bg-[--color-panel] p-4">
-            <input
-              type="checkbox"
-              checked={overclaim}
-              onChange={(e) => setOverclaim(e.target.checked)}
-              className="mt-0.5 size-5 accent-amber-400"
-            />
-            <span>
-              <span className="text-sm text-neutral-200">
-                Tell the summariser to over-claim once, on purpose
-              </span>
-              <span className="mt-1 block text-xs text-neutral-500">
-                Plants one invented statistic in revision 0 so the fact-check rejection and
-                the loop back to <code>summarize</code> are guaranteed to happen live.
-                Untick to watch the same graph on an honest first pass.
-              </span>
-            </span>
-          </label>
-        </section>
-
-        <div className="mt-10 flex items-center gap-3">
-          {setupStep === 1 && (
-            <button
-              onClick={() => setSetupStep(0)}
-              disabled={!!busy}
-              className="rounded-md border border-[--color-line] px-4 py-3 text-sm text-neutral-300 transition hover:border-neutral-600 disabled:opacity-30"
-            >
-              Back
-            </button>
-          )}
-          {setupStep === 0 ? (
-            <button
-              onClick={() => setSetupStep(1)}
-              disabled={!chosen.length}
-              className="rounded-md bg-white px-6 py-3 font-medium text-black transition hover:bg-neutral-200 disabled:opacity-40"
-            >
-              {chosen.length
-                ? `Next (${chosen.length} source${chosen.length === 1 ? '' : 's'})`
-                : 'Choose a file first'}
-            </button>
-          ) : (
-            <button
-              onClick={() => step(null)}
-              disabled={!!busy}
-              className="rounded-md bg-white px-6 py-3 font-medium text-black transition hover:bg-neutral-200 disabled:opacity-40"
-            >
-              {busy ? 'starting…' : 'Start run'}
-            </button>
-          )}
+              {preview === u.name && (
+                <pre className="max-h-72 overflow-auto border-t border-[--color-line] p-4 text-xs leading-relaxed text-neutral-400">
+                  {u.text}
+                </pre>
+              )}
+            </div>
+          ))}
         </div>
+
+        <label className="mt-4 flex cursor-pointer items-center justify-center gap-3 rounded-lg border border-dashed border-[--color-line] p-6 text-sm text-neutral-400 transition hover:border-neutral-600 hover:text-neutral-200">
+          <input
+            type="file"
+            accept=".txt,.md,text/plain,text/markdown"
+            multiple
+            className="hidden"
+            onChange={async (e) => {
+              const files = [...(e.target.files ?? [])]
+              e.target.value = ''
+              const read = await Promise.all(
+                files.map(async (f) => {
+                  const text = await f.text()
+                  return { name: f.name, words: text.trim().split(/\s+/).length, text }
+                })
+              )
+              setChosen((prev) => [
+                ...prev.filter((p) => !read.some((r) => r.name === p.name)),
+                ...read,
+              ])
+            }}
+          />
+          {chosen.length ? 'Choose another file' : 'Choose a .txt file'}
+        </label>
+
+        <button
+          onClick={() => advance(true)}
+          disabled={!chosen.length || !!busy}
+          className="mt-8 rounded-md bg-white px-6 py-3 font-medium text-black transition hover:bg-neutral-200 disabled:opacity-40"
+        >
+          {busy ? 'starting…' : 'Start run'}
+        </button>
         {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
       </main>
     )
@@ -247,7 +198,8 @@ export default function Page() {
   // ------------------------------------------------------------------ run ---
   const ev = steps[idx]
   const loops = steps.filter((e) => e.kind === 'decision' && e.next === 'summarize').length
-  const revision = [...steps.slice(0, idx + 1)].reverse().find((e) => e.revision !== undefined)?.revision ?? 0
+  const revision =
+    [...steps.slice(0, idx + 1)].reverse().find((e) => e.revision !== undefined)?.revision ?? 0
 
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col px-6 pb-28 pt-8">
@@ -256,7 +208,7 @@ export default function Page() {
       <div className="mt-8 flex-1">
         <p className="text-xs font-semibold uppercase tracking-widest text-neutral-600">
           step {idx + 1} of {steps.length}
-          {status === 'paused' && atEnd && ' · paused'}
+          {busy && <span className="ml-2 animate-pulse text-emerald-500">{busy}</span>}
         </p>
         {ev && <Stage e={ev} />}
         {error && (
@@ -305,11 +257,11 @@ function Rail({
         <span className="text-neutral-500">revision {revision}</span>
         {loops ? (
           <span className="rounded-full border border-amber-600 bg-amber-500/10 px-3 py-1 text-amber-300">
-            ↺ {loops} loop-back{loops === 1 ? '' : 's'}
+            {loops} loop-back{loops === 1 ? '' : 's'}
           </span>
         ) : (
           <span className="rounded-full border border-[--color-line] px-3 py-1 text-neutral-500">
-            ↺ 0 loop-backs
+            0 loop-backs
           </span>
         )}
       </span>
@@ -327,7 +279,7 @@ function Controls(p: {
       <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-4">
         <button
           onClick={p.onPrev}
-          disabled={p.idx === 0 || !!p.busy}
+          disabled={p.idx === 0}
           className="rounded-md border border-[--color-line] px-4 py-2 text-sm text-neutral-300 hover:border-neutral-600 disabled:opacity-30"
         >
           Back
@@ -337,7 +289,7 @@ function Controls(p: {
           disabled={!p.canAdvance}
           className="rounded-md bg-white px-6 py-2 text-sm font-medium text-black hover:bg-neutral-200 disabled:opacity-30"
         >
-          {p.busy ? 'running…' : p.status === 'done' && p.idx >= p.total - 1 ? 'Finished' : 'Next step'}
+          {p.status === 'done' && p.idx >= p.total - 1 ? 'Finished' : 'Next step'}
         </button>
         <button
           onClick={p.onAuto}
@@ -347,7 +299,7 @@ function Controls(p: {
           {p.auto ? 'Stop' : 'Run to end'}
         </button>
         <span className="ml-auto text-xs text-neutral-600">
-          ← / → or space to step · {p.idx + 1}/{p.total}
+          {p.idx + 1}/{p.total}
         </span>
         <button onClick={p.onRestart} className="text-xs text-neutral-500 hover:text-white">
           restart
@@ -359,57 +311,37 @@ function Controls(p: {
 
 /* ----------------------------------------------------------------- stage --- */
 
-function Head({ tag, title, note }: { tag: string; title: string; note: string }) {
+function Head({ tag, title }: { tag: string; title: string }) {
   return (
     <header className="mt-2">
       <p className="font-mono text-xs uppercase tracking-widest text-neutral-500">{tag}</p>
       <h2 className="mt-2 text-3xl font-semibold tracking-tight text-white">{title}</h2>
-      <p className="mt-2 max-w-3xl text-sm text-neutral-400">{note}</p>
     </header>
   )
 }
 
 function Stage({ e }: { e: Ev }) {
   if (e.kind === 'start' && e.node === 'graph')
-    return (
-      <>
-        <Head
-          tag="graph · start"
-          title="The run begins"
-          note={`Model ${e.model}, running locally. ${
-            e.overclaim
-              ? 'Sabotage is ON — revision 0 will contain one deliberately invented statistic.'
-              : 'Sabotage is OFF — the summariser is asked to behave.'
-          } The loop is capped at ${e.maxRevisions} revisions so it always terminates.`}
-        />
-      </>
-    )
+    return <Head tag="graph · start" title={`The run begins · ${e.model}`} />
 
   if (e.kind === 'loaded')
     return (
       <>
         <Head
           tag="node · read_source"
-          title={`${e.files.length} source${e.files.length === 1 ? '' : 's'} loaded`}
-          note={`Split into ${e.sentences} sentences. This sentence index is the entire universe of provable facts for the rest of the run — fact_check can only cite from here.`}
+          title={`${e.files.length} source${e.files.length === 1 ? '' : 's'} loaded · ${e.sentences} sentences`}
         />
         <ul className="mt-6 space-y-2">
           {e.files.map((f: any) => (
             <li key={f.name} className="rounded-md border border-[--color-line] bg-[--color-panel] px-4 py-3">
               <span className="font-mono text-sm text-neutral-200">{f.name}</span>
               <span className="ml-3 text-xs text-neutral-500">{f.words} words</span>
-              {f.uploaded && (
-                <span className="ml-3 rounded bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
-                  yours
-                </span>
-              )}
             </li>
           ))}
         </ul>
         {e.truncated?.length > 0 && (
           <p className="mt-4 rounded-md border border-amber-800 bg-amber-500/10 p-3 text-xs text-amber-200">
-            Trimmed to fit the model's context: {e.truncated.join(', ')}. Only the kept text
-            can ground a claim.
+            trimmed to fit the model context: {e.truncated.join(', ')}
           </p>
         )}
       </>
@@ -421,25 +353,18 @@ function Stage({ e }: { e: Ev }) {
         <Head
           tag={`node · summarize · revision ${e.revision}`}
           title={
-            e.sabotaged ? 'Prompting the summariser — with sabotage'
-            : e.repairing?.length ? `Re-prompting with ${e.repairing.length} rejection(s)`
-            : 'Prompting the summariser'
-          }
-          note={
-            e.sabotaged
-              ? 'One extra instruction is appended to this prompt only: invent an impressive statistic that is not in the sources, and blend it in. This is how we guarantee the class sees a loop-back.'
-              : e.repairing?.length
-                ? 'The rejected claims go back into the prompt with the gate that rejected them and why. The model is told to keep what passed and fix or drop the rest.'
-                : 'The model gets the full source text and must return 4–6 claims as JSON.'
+            e.repairing?.length
+              ? `Re-prompting with ${e.repairing.length} rejection${e.repairing.length === 1 ? '' : 's'}`
+              : 'Prompting the summariser'
           }
         />
         {!!e.repairing?.length && (
           <ul className="mt-6 space-y-3">
             {e.repairing.map((r: any, i: number) => (
               <li key={i} className="rounded-md border border-red-900/70 bg-red-950/20 p-4">
-                <p className="text-sm text-neutral-200">“{r.claim}”</p>
+                <p className="text-sm text-neutral-200">{r.claim}</p>
                 <p className="mt-2 text-xs text-red-300">
-                  rejected at the <span className="font-mono">{r.gate}</span> gate — {r.reason}
+                  <span className="font-mono">{r.gate}</span> gate — {r.reason}
                 </p>
               </li>
             ))}
@@ -454,7 +379,6 @@ function Stage({ e }: { e: Ev }) {
         <Head
           tag={`node · summarize · revision ${e.revision}`}
           title={`${e.claims.length} claims produced`}
-          note="Nothing is trusted yet. Each of these is now checked independently, one at a time."
         />
         <ol className="mt-6 space-y-3">
           {e.claims.map((c: string, i: number) => (
@@ -474,11 +398,6 @@ function Stage({ e }: { e: Ev }) {
       <Head
         tag={`node · fact_check · revision ${e.revision}`}
         title={`${e.checked} claims checked · ${e.unsupported} unsupported`}
-        note={
-          e.unsupported
-            ? 'The pass is finished. The conditional edge now decides whether to loop.'
-            : 'Every claim survived all three gates.'
-        }
       />
     )
 
@@ -487,8 +406,7 @@ function Stage({ e }: { e: Ev }) {
       <>
         <Head
           tag="conditional edge"
-          title={e.next === 'summarize' ? '↺ Loop back to summarize' : '→ END'}
-          note={e.why}
+          title={e.next === 'summarize' ? 'Loop back to summarize' : 'END'}
         />
         <div
           className={`mt-6 rounded-lg border p-6 font-mono text-sm ${
@@ -509,7 +427,6 @@ function Stage({ e }: { e: Ev }) {
         <Head
           tag="graph · END"
           title={`Final summary after ${e.revisions} pass${e.revisions === 1 ? '' : 'es'}`}
-          note="Every sentence below cleared all three gates. Nothing here is unsupported by the documents you selected."
         />
         <ul className="mt-6 space-y-3">
           {(e.verdicts ?? []).map((v: any, i: number) => (
@@ -537,7 +454,7 @@ function Stage({ e }: { e: Ev }) {
       </>
     )
 
-  return <Head tag={e.node} title={e.kind} note={JSON.stringify(e).slice(0, 300)} />
+  return <Head tag={e.node} title={e.kind} />
 }
 
 /* --------------------------------------------------------------- verdict --- */
@@ -551,7 +468,6 @@ function VerdictStage({ e }: { e: Ev }) {
       <Head
         tag={`node · fact_check · claim ${e.position} of ${e.total}`}
         title={v.supported ? 'Supported' : `Rejected at the ${v.gate} gate`}
-        note="Three gates, in order. The claim must clear all three; the first failure stops the checking and becomes the reason."
       />
 
       <blockquote className="mt-6 border-l-2 border-neutral-600 pl-4 text-lg leading-relaxed text-neutral-100">
@@ -559,15 +475,9 @@ function VerdictStage({ e }: { e: Ev }) {
       </blockquote>
 
       <div className="mt-8 space-y-4">
-        <Gate
-          n={1}
-          name="numeric"
-          kind="deterministic · no model"
-          state={d.numeric.pass ? 'pass' : 'fail'}
-          rule="Every number the claim asserts must exist as a token in the source text."
-        >
+        <Gate n={1} name="numeric" kind="deterministic" state={d.numeric.pass ? 'pass' : 'fail'}>
           {d.numeric.claimNumbers.length === 0 ? (
-            <p className="text-sm text-neutral-500">The claim asserts no numbers. Nothing to check.</p>
+            <p className="text-sm text-neutral-500">no numbers asserted</p>
           ) : (
             <div className="flex flex-wrap gap-2">
               {d.numeric.claimNumbers.map((n: string, i: number) => {
@@ -581,7 +491,7 @@ function VerdictStage({ e }: { e: Ev }) {
                         : 'bg-emerald-500/10 text-emerald-300'
                     }`}
                   >
-                    {n} {bad ? '✗ not in sources' : '✓'}
+                    {n} {bad ? '✗' : '✓'}
                   </span>
                 )
               })}
@@ -592,9 +502,8 @@ function VerdictStage({ e }: { e: Ev }) {
         <Gate
           n={2}
           name="lexical"
-          kind="deterministic · no model"
+          kind="deterministic"
           state={d.lexical.pass === null ? 'skip' : d.lexical.pass ? 'pass' : 'fail'}
-          rule={`The 3 best-matching source sentences must together account for at least ${d.lexical.floor} of the claim's content words. These same 3 are the only evidence gate 3 is allowed to see.`}
         >
           <p className="mb-4 text-sm">
             <span className="text-neutral-400">coverage </span>
@@ -603,10 +512,10 @@ function VerdictStage({ e }: { e: Ev }) {
             >
               {d.lexical.best}
             </span>
-            <span className="text-neutral-500"> / {d.lexical.floor} required</span>
+            <span className="text-neutral-500"> / {d.lexical.floor}</span>
             {d.lexical.uncovered?.length > 0 && (
               <span className="ml-3 text-neutral-500">
-                nothing accounts for{' '}
+                unaccounted{' '}
                 {d.lexical.uncovered.slice(0, 6).map((w: string) => (
                   <span key={w} className="mr-1 rounded bg-red-500/15 px-1.5 py-0.5 font-mono text-xs text-red-300">
                     {w}
@@ -626,8 +535,8 @@ function VerdictStage({ e }: { e: Ev }) {
                       style={{ width: `${Math.min(100, c.score * 100)}%` }}
                     />
                   </div>
-                  <span className="w-24 shrink-0 text-right font-mono text-xs text-neutral-400">
-                    {c.score.toFixed(2)} rank
+                  <span className="w-16 shrink-0 text-right font-mono text-xs text-neutral-400">
+                    {c.score.toFixed(2)}
                   </span>
                 </div>
                 <p className="mt-2 text-xs leading-relaxed text-neutral-400">
@@ -644,12 +553,9 @@ function VerdictStage({ e }: { e: Ev }) {
           name="entailment"
           kind="qwen2.5:3b"
           state={!d.entailment ? 'skip' : v.supported ? 'pass' : 'fail'}
-          rule="The model sees only the 3 sentences above, numbered, and must answer with the index of the one that states the claim. Returning an index rather than a quote means it cannot cite evidence that does not exist."
         >
           {!d.entailment ? (
-            <p className="text-sm text-neutral-500">
-              Not run — a deterministic gate already rejected this claim.
-            </p>
+            <p className="text-sm text-neutral-500">not run</p>
           ) : (
             <>
               <pre className="overflow-x-auto rounded bg-black/40 p-3 font-mono text-xs text-neutral-300">
@@ -677,19 +583,17 @@ function VerdictStage({ e }: { e: Ev }) {
             : 'border-red-900 bg-red-950/20 text-red-200'
         }`}
       >
-        <span className="font-medium">{v.supported ? 'Verdict: supported.' : 'Verdict: unsupported.'}</span>{' '}
         {v.reason}
-        {!v.supported && ' — this claim will be sent back to summarize with that reason attached.'}
       </p>
     </>
   )
 }
 
 function Gate({
-  n, name, kind, state, rule, children,
+  n, name, kind, state, children,
 }: {
   n: number; name: string; kind: string
-  state: 'pass' | 'fail' | 'skip'; rule: string; children: React.ReactNode
+  state: 'pass' | 'fail' | 'skip'; children: React.ReactNode
 }) {
   const tone =
     state === 'pass' ? 'border-emerald-800' : state === 'fail' ? 'border-red-900' : 'border-[--color-line]'
@@ -711,10 +615,7 @@ function Gate({
           {state === 'skip' ? 'not run' : state}
         </span>
       </header>
-      <div className="px-4 py-4">
-        <p className="mb-4 text-xs leading-relaxed text-neutral-500">{rule}</p>
-        {children}
-      </div>
+      <div className="px-4 py-4">{children}</div>
     </section>
   )
 }
