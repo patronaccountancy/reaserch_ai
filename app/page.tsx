@@ -105,11 +105,6 @@ export default function Page() {
         <h1 className="text-4xl font-semibold tracking-tight text-white">
           Multi-Step Research Summarizer Graph
         </h1>
-        <p className="mt-3 max-w-2xl text-neutral-400">
-          A LangGraph workflow that summarises local documents and refuses to publish any
-          claim it cannot ground in them. Fully offline — documents, graph and model all run
-          on this machine, on Ollama · qwen2.5:3b. No network calls, no API keys.
-        </p>
 
         <section className="mt-12">
           <h2 className="text-sm font-semibold uppercase tracking-widest text-neutral-500">
