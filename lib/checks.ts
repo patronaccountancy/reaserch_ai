@@ -12,8 +12,15 @@ export const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim()
 export function sentences(docs: { name: string; text: string }[]) {
   return docs.flatMap((d) =>
     d.text
-      .replace(/\s+/g, ' ')
-      .split(/(?<=[.!?])\s+(?=[A-Z"'(])/)
+      // Split paragraphs first, so a document header never gets glued onto the
+      // first real sentence — evidence quotes are read aloud, keep them clean.
+      .split(/\n\s*\n/)
+      .flatMap((para) =>
+        para
+          .replace(/\s+/g, ' ')
+          .trim()
+          .split(/(?<=[.!?])\s+(?=[A-Z"'(])/)
+      )
       .map((s) => s.trim())
       .filter((s) => s.split(' ').length >= 4)
       .map((text) => ({ source: d.name, text }))
@@ -44,10 +51,15 @@ export function numberGate(claim: string, corpus: string) {
 }
 
 /**
- * GATE 2 — lexical grounding. Rank source sentences by the share of the
- * claim's content words they contain; the best one must clear FLOOR.
+ * GATE 2 — lexical grounding. Retrieve the best source sentences, then require
+ * that together they account for at least FLOOR of the claim's content words.
+ *
+ * Coverage is measured against the *union* of the retrieved sentences, not the
+ * single best one, because that union is exactly what gate 3 is shown. Scoring
+ * against one sentence rejected legitimate claims that correctly combine two
+ * adjacent facts from a source.
  */
-export const OVERLAP_FLOOR = 0.34
+export const OVERLAP_FLOOR = 0.5
 
 export function retrieve(
   claim: string,
@@ -66,7 +78,16 @@ export function retrieve(
   return scored.slice(0, k)
 }
 
-export function lexicalGate(top: { score: number }[]) {
-  const best = top[0]?.score ?? 0
-  return { pass: best >= OVERLAP_FLOOR, best: Number(best.toFixed(2)) }
+export function lexicalGate(claim: string, top: { text: string }[]) {
+  const want = contentWords(claim)
+  const pool = new Set<string>()
+  for (const s of top) for (const w of contentWords(s.text)) pool.add(w)
+
+  const uncovered = [...want].filter((w) => !pool.has(w))
+  const coverage = want.size ? (want.size - uncovered.length) / want.size : 0
+  return {
+    pass: coverage >= OVERLAP_FLOOR,
+    best: Number(coverage.toFixed(2)),
+    uncovered,
+  }
 }

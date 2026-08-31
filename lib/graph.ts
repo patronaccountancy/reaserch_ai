@@ -1,12 +1,13 @@
 import { readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
-import { StateGraph, Annotation, START, END } from '@langchain/langgraph'
+import { StateGraph, Annotation, MemorySaver, START, END } from '@langchain/langgraph'
 import { chat, parseJson, MODEL } from './ollama'
 import {
   sentences,
   retrieve,
   numberGate,
   lexicalGate,
+  numbers,
   norm,
   OVERLAP_FLOOR,
 } from './checks'
@@ -14,28 +15,50 @@ import {
 export const MAX_REVISIONS = 3
 
 export type Doc = { name: string; text: string }
+export type Sent = { source: string; text: string; score: number }
+
+/** Everything fact_check looked at for one claim — this is what the UI explains. */
+export type GateDetail = {
+  numeric: { claimNumbers: string[]; missing: string[]; pass: boolean }
+  lexical: {
+    candidates: Sent[]
+    best: number
+    floor: number
+    uncovered: string[]
+    pass: boolean | null
+  }
+  entailment:
+    | { supported: boolean; sentence: number; reason: string; cited?: Sent }
+    | null
+}
+
 export type Verdict = {
   claim: string
+  index: number
   supported: boolean
   gate: 'numeric' | 'lexical' | 'entailment'
   reason: string
   evidence?: string
   evidenceSource?: string
   overlap: number
+  detail: GateDetail
 }
+
 export type TraceEvent = { t: number; node: string; kind: string; [k: string]: unknown }
 export type Emit = (e: Omit<TraceEvent, 't'>) => void
 
 const S = Annotation.Root({
+  selected: Annotation<string[]>,
   overclaim: Annotation<boolean>,
   docs: Annotation<Doc[]>,
   corpus: Annotation<string>,
   claims: Annotation<string[]>,
+  cursor: Annotation<number>,
   verdicts: Annotation<Verdict[]>,
   revision: Annotation<number>,
   feedback: Annotation<Verdict[]>,
 })
-type State = typeof S.State
+export type State = typeof S.State
 
 const SUMMARISE_RULES = [
   'You are a research summariser. You may only state things the SOURCES state.',
@@ -55,19 +78,104 @@ const ENTAILMENT_RULES = [
   'Return JSON: {"supported": true|false, "sentence": <number>, "reason": "<12 words max>"}',
 ].join('\n')
 
-export function buildGraph(emit: Emit) {
+export const SOURCE_DIR = () => path.join(process.cwd(), 'sources')
+
+export async function loadSources(): Promise<Doc[]> {
+  const dir = SOURCE_DIR()
+  const files = (await readdir(dir)).filter((f) => f.endsWith('.txt')).sort()
+  return Promise.all(
+    files.map(async (name) => ({ name, text: await readFile(path.join(dir, name), 'utf8') }))
+  )
+}
+
+/** Shared across requests so a paused run can be resumed by thread id. */
+const checkpointer = new MemorySaver()
+
+/**
+ * The whole of fact-checking for ONE claim: gate 1, gate 2, gate 3, in order,
+ * first failure wins. The fact_check node and /api/probe both call this, so
+ * what an audience types into the probe runs the identical code path.
+ */
+export async function checkClaim(
+  claim: string,
+  docs: Doc[],
+  index: number
+): Promise<Verdict> {
+  const sents = sentences(docs)
+  const corpus = norm(docs.map((d) => d.text).join('\n\n'))
+
+  // GATE 1 - every numeric literal must exist as a token in the sources.
+  const num = numberGate(claim, corpus)
+  // GATE 2 - lexical grounding; its top 3 are the only admissible evidence.
+  const candidates = retrieve(claim, sents)
+  const lex = lexicalGate(claim, candidates)
+
+  const detail: GateDetail = {
+    numeric: { claimNumbers: numbers(claim), missing: num.missing, pass: num.pass },
+    lexical: {
+      candidates,
+      best: lex.best,
+      floor: OVERLAP_FLOOR,
+      uncovered: lex.uncovered,
+      pass: num.pass ? lex.pass : null,
+    },
+    entailment: null,
+  }
+
+  if (!num.pass)
+    return {
+      claim, index, supported: false, gate: 'numeric', overlap: lex.best, detail,
+      reason: `figure(s) ${num.missing.join(', ')} appear nowhere in the sources`,
+    }
+
+  if (!lex.pass)
+    return {
+      claim, index, supported: false, gate: 'lexical', overlap: lex.best, detail,
+      reason: `the retrieved sentences cover only ${lex.best} of the claim's content words (floor ${OVERLAP_FLOOR}); nothing accounts for ${lex.uncovered.slice(0, 4).join(', ')}`,
+    }
+
+  // GATE 3 - entailment over the retrieved sentences only. The model returns an
+  // index, so it cannot cite evidence that does not exist.
+  const raw = await chat(
+    [
+      { role: 'system', content: ENTAILMENT_RULES },
+      {
+        role: 'user',
+        content:
+          'SENTENCES:\n' +
+          candidates.map((x, i) => `${i + 1}. ${x.text}`).join('\n') +
+          `\n\nCLAIM: ${claim}`,
+      },
+    ],
+    { json: true }
+  )
+  const a = parseJson(raw, { supported: false, sentence: 0, reason: 'unparseable verdict' })
+  const cited = candidates[Number(a.sentence) - 1]
+  const ok = !!a.supported && !!cited
+  detail.entailment = {
+    supported: !!a.supported,
+    sentence: Number(a.sentence) || 0,
+    reason: String(a.reason || ''),
+    cited,
+  }
+  return {
+    claim, index, supported: ok, gate: 'entailment', overlap: lex.best, detail,
+    reason: ok
+      ? String(a.reason || 'entailed by the cited sentence')
+      : String(a.reason || 'no retrieved sentence entails the claim'),
+    evidence: cited?.text,
+    evidenceSource: cited?.source,
+  }
+}
+
+export function buildGraph(emit: Emit, interactive = false) {
   const g = new StateGraph(S)
 
     // ---- node: read_source -------------------------------------------------
-    .addNode('read_source', async () => {
-      const dir = path.join(process.cwd(), 'sources')
-      const files = (await readdir(dir)).filter((f) => f.endsWith('.txt')).sort()
-      const docs: Doc[] = await Promise.all(
-        files.map(async (name) => ({
-          name,
-          text: await readFile(path.join(dir, name), 'utf8'),
-        }))
-      )
+    .addNode('read_source', async (s: State) => {
+      const all = await loadSources()
+      const pick = s.selected?.length ? all.filter((d) => s.selected.includes(d.name)) : all
+      const docs = pick.length ? pick : all
       const corpus = docs.map((d) => d.text).join('\n\n')
       emit({
         node: 'read_source',
@@ -75,7 +183,7 @@ export function buildGraph(emit: Emit) {
         files: docs.map((d) => ({ name: d.name, words: d.text.trim().split(/\s+/).length })),
         sentences: sentences(docs).length,
       })
-      return { docs, corpus, revision: 0, verdicts: [], feedback: [] }
+      return { docs, corpus, revision: 0, cursor: 0, verdicts: [], feedback: [] }
     })
 
     // ---- node: summarize ---------------------------------------------------
@@ -85,21 +193,17 @@ export function buildGraph(emit: Emit) {
       const lastChance = revision >= MAX_REVISIONS - 1
 
       let user =
-        'SOURCES:\n\n' +
-        s.docs.map((d) => `--- ${d.name} ---\n${d.text}`).join('\n\n')
+        'SOURCES:\n\n' + s.docs.map((d) => `--- ${d.name} ---\n${d.text}`).join('\n\n')
 
       if (rejected.length) {
         user +=
           '\n\nYour previous summary was rejected. These claims failed fact-checking:\n' +
           rejected
-            .map(
-              (v, i) =>
-                `${i + 1}. "${v.claim}"\n   REJECTED (${v.gate} gate): ${v.reason}`
-            )
+            .map((v, i) => `${i + 1}. "${v.claim}"\n   REJECTED (${v.gate} gate): ${v.reason}`)
             .join('\n') +
           '\n\nRewrite the summary. ' +
           (lastChance
-            ? 'DELETE every rejected claim outright.'
+            ? 'DELETE every rejected claim outright and replace it with different material from the sources.'
             : 'Delete or rewrite each rejected claim so it says only what the sources say.') +
           ' Repeat the claims that passed verbatim, and top the summary back up to 4-6' +
           ' claims using source material you have not used yet.'
@@ -119,7 +223,7 @@ export function buildGraph(emit: Emit) {
         kind: 'start',
         revision,
         sabotaged: revision === 0 && !!s.overclaim,
-        repairing: rejected.length,
+        repairing: rejected.map((v) => ({ claim: v.claim, gate: v.gate, reason: v.reason })),
       })
 
       const raw = await chat(
@@ -131,95 +235,45 @@ export function buildGraph(emit: Emit) {
       )
       const claims = (parseJson<{ claims: string[] }>(raw, { claims: [] }).claims ?? [])
         .map((c) => String(c).trim())
-        .filter(Boolean)
+        .filter((c) => c && c !== '...')
 
       emit({ node: 'summarize', kind: 'claims', revision, claims })
-      return { claims, revision, feedback: [] }
+      return { claims, revision, cursor: 0, verdicts: [], feedback: [] }
     })
 
     // ---- node: fact_check --------------------------------------------------
+    // Checks exactly ONE claim per execution and loops back to itself, so a
+    // presenter can pause on every individual claim.
     .addNode('fact_check', async (s: State) => {
-      const sents = sentences(s.docs)
-      const corpus = norm(s.corpus)
-      const verdicts: Verdict[] = []
+      const cursor = s.cursor ?? 0
+      const claim = s.claims[cursor]
+      const prior = s.verdicts ?? []
 
-      for (const claim of s.claims) {
-        const num = numberGate(claim, corpus) // GATE 1
-        const top = retrieve(claim, sents)
-        const lex = lexicalGate(top) // GATE 2
-
-        if (!num.pass) {
-          verdicts.push({
-            claim,
-            supported: false,
-            gate: 'numeric',
-            overlap: lex.best,
-            reason: `figure(s) ${num.missing.join(', ')} appear nowhere in the sources`,
-          })
-        } else if (!lex.pass) {
-          verdicts.push({
-            claim,
-            supported: false,
-            gate: 'lexical',
-            overlap: lex.best,
-            reason: `best source sentence covers only ${lex.best} of the claim's content words (floor ${OVERLAP_FLOOR})`,
-          })
-        } else {
-          // GATE 3 - entailment, restricted to the retrieved sentences so the
-          // model cannot cite evidence that does not exist.
-          const raw = await chat(
-            [
-              { role: 'system', content: ENTAILMENT_RULES },
-              {
-                role: 'user',
-                content:
-                  'SENTENCES:\n' +
-                  top.map((x, i) => `${i + 1}. ${x.text}`).join('\n') +
-                  `\n\nCLAIM: ${claim}`,
-              },
-            ],
-            { json: true }
-          )
-          const v = parseJson(raw, {
-            supported: false,
-            sentence: 0,
-            reason: 'unparseable verdict',
-          })
-          const cite = top[Number(v.sentence) - 1]
-          const ok = !!v.supported && !!cite
-          verdicts.push({
-            claim,
-            supported: ok,
-            gate: 'entailment',
-            overlap: lex.best,
-            reason: ok
-              ? String(v.reason || 'entailed by the cited sentence')
-              : String(v.reason || 'no retrieved sentence entails the claim'),
-            evidence: cite?.text,
-            evidenceSource: cite?.source,
-          })
-        }
-
-        emit({
-          node: 'fact_check',
-          kind: 'verdict',
-          revision: s.revision,
-          verdict: verdicts.at(-1),
-        })
+      if (!claim) {
+        emit({ node: 'fact_check', kind: 'pass_done', revision: s.revision, checked: prior.length, unsupported: 0 })
+        return { feedback: [], revision: s.revision + 1 }
       }
 
-      const bad = verdicts.filter((v) => !v.supported)
+      const v = await checkClaim(claim, s.docs, cursor)
+
+      const verdicts = [...prior, v]
+      const last = cursor + 1 >= s.claims.length
       emit({
-        node: 'fact_check',
-        kind: 'summary',
-        revision: s.revision,
-        checked: verdicts.length,
-        unsupported: bad.length,
+        node: 'fact_check', kind: 'verdict', revision: s.revision,
+        verdict: v, position: cursor + 1, total: s.claims.length,
       })
-      return { verdicts, feedback: bad, revision: s.revision + 1 }
+
+      if (!last) return { verdicts, cursor: cursor + 1 }
+
+      const bad = verdicts.filter((x) => !x.supported)
+      emit({
+        node: 'fact_check', kind: 'pass_done', revision: s.revision,
+        checked: verdicts.length, unsupported: bad.length,
+      })
+      return { verdicts, cursor: cursor + 1, feedback: bad, revision: s.revision + 1 }
     })
 
-  // ---- edges: read -> summarize -> fact_check -> (loop back | end) ---------
+  // ---- edges ---------------------------------------------------------------
   const b = g as any
   b.addEdge(START, 'read_source')
   b.addEdge('read_source', 'summarize')
@@ -227,38 +281,47 @@ export function buildGraph(emit: Emit) {
   b.addConditionalEdges(
     'fact_check',
     (s: State) => {
+      // more claims left in this pass?
+      if ((s.cursor ?? 0) < s.claims.length) return 'fact_check'
+
       const bad = (s.feedback ?? []).length
       const loop = bad > 0 && s.revision < MAX_REVISIONS
       emit({
-        node: 'route',
-        kind: 'decision',
-        revision: s.revision,
-        unsupported: bad,
+        node: 'route', kind: 'decision', revision: s.revision, unsupported: bad,
         next: loop ? 'summarize' : 'END',
         why:
           bad === 0
             ? 'every claim passed all three gates'
             : loop
-              ? `${bad} unsupported claim(s) -> loop back to summarize`
+              ? `${bad} unsupported claim(s) -> loop back to summarize with the rejections attached`
               : `revision cap ${MAX_REVISIONS} reached; ending with ${bad} claim(s) still unsupported`,
       })
       return loop ? 'summarize' : END
     },
-    { summarize: 'summarize', [END]: END }
+    { fact_check: 'fact_check', summarize: 'summarize', [END]: END }
   )
 
-  return b.compile()
+  return b.compile(
+    interactive
+      ? { checkpointer, interruptBefore: ['summarize', 'fact_check'] }
+      : {}
+  )
 }
 
-export async function run(overclaim: boolean, emit: Emit) {
-  emit({ node: 'graph', kind: 'start', model: MODEL, overclaim })
-  const final = await buildGraph(emit).invoke({ overclaim }, { recursionLimit: 50 })
+/** Non-interactive: run the whole thing (used by /api/run and TRACE.md). */
+export async function run(
+  overclaim: boolean,
+  emit: Emit,
+  selected: string[] = []
+) {
+  emit({ node: 'graph', kind: 'start', model: MODEL, overclaim, selected })
+  const final = await buildGraph(emit).invoke(
+    { overclaim, selected },
+    { recursionLimit: 200 }
+  )
   emit({
-    node: 'graph',
-    kind: 'done',
-    revisions: final.revision,
-    claims: final.claims,
-    verdicts: final.verdicts,
+    node: 'graph', kind: 'done',
+    revisions: final.revision, claims: final.claims, verdicts: final.verdicts,
   })
   return final
 }
