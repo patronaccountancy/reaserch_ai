@@ -217,7 +217,7 @@ export default function Page() {
               disabled={!!busy}
               className="rounded-md border border-[--color-line] px-4 py-3 text-sm text-neutral-300 transition hover:border-neutral-600 disabled:opacity-30"
             >
-              ← Back
+              Back
             </button>
           )}
           {setupStep === 0 ? (
@@ -227,7 +227,7 @@ export default function Page() {
               className="rounded-md bg-white px-6 py-3 font-medium text-black transition hover:bg-neutral-200 disabled:opacity-40"
             >
               {chosen.length
-                ? `Next → (${chosen.length} source${chosen.length === 1 ? '' : 's'})`
+                ? `Next (${chosen.length} source${chosen.length === 1 ? '' : 's'})`
                 : 'Choose a file first'}
             </button>
           ) : (
@@ -236,7 +236,7 @@ export default function Page() {
               disabled={!!busy}
               className="rounded-md bg-white px-6 py-3 font-medium text-black transition hover:bg-neutral-200 disabled:opacity-40"
             >
-              {busy ? 'starting…' : 'Start run →'}
+              {busy ? 'starting…' : 'Start run'}
             </button>
           )}
         </div>
@@ -330,21 +330,21 @@ function Controls(p: {
           disabled={p.idx === 0 || !!p.busy}
           className="rounded-md border border-[--color-line] px-4 py-2 text-sm text-neutral-300 hover:border-neutral-600 disabled:opacity-30"
         >
-          ← Back
+          Back
         </button>
         <button
           onClick={p.onNext}
           disabled={!p.canAdvance}
           className="rounded-md bg-white px-6 py-2 text-sm font-medium text-black hover:bg-neutral-200 disabled:opacity-30"
         >
-          {p.busy ? 'running…' : p.status === 'done' && p.idx >= p.total - 1 ? 'Finished' : 'Next step →'}
+          {p.busy ? 'running…' : p.status === 'done' && p.idx >= p.total - 1 ? 'Finished' : 'Next step'}
         </button>
         <button
           onClick={p.onAuto}
           disabled={p.status === 'done'}
           className="rounded-md border border-[--color-line] px-4 py-2 text-sm text-neutral-400 hover:border-neutral-600 disabled:opacity-30"
         >
-          {p.auto ? '⏸ Stop' : '⏩ Run to end'}
+          {p.auto ? 'Stop' : 'Run to end'}
         </button>
         <span className="ml-auto text-xs text-neutral-600">
           ← / → or space to step · {p.idx + 1}/{p.total}
