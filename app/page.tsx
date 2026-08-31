@@ -8,6 +8,17 @@ type Status = 'setup' | 'paused' | 'done' | 'error'
 
 const NODES = ['read_source', 'summarize', 'fact_check'] as const
 
+/**
+ * Events that would render as a bare heading are not worth a press. The graph
+ * start banner says nothing the rail does not, a summarize start only earns a
+ * screen when it is carrying rejections back, and pass_done repeats the count
+ * the routing decision already shows.
+ */
+const shown = (e: Ev) =>
+  !(e.node === 'graph' && e.kind === 'start') &&
+  !(e.node === 'summarize' && e.kind === 'start' && !e.repairing?.length) &&
+  e.kind !== 'pass_done'
+
 export default function Page() {
   const [chosen, setChosen] = useState<Src[]>([])
   const [preview, setPreview] = useState<string | null>(null)
@@ -33,6 +44,7 @@ export default function Page() {
       if (inflight.current) return
       inflight.current = true
       setBusy(fresh ? 'reading sources…' : 'thinking…')
+      let d: any
       try {
         const res = await fetch('/api/step', {
           method: 'POST',
@@ -49,26 +61,37 @@ export default function Page() {
               : { threadId: threadRef.current }
           ),
         })
-        const d = await res.json()
+        d = await res.json()
         threadRef.current = d.threadId
         setStatus(d.status)
         if (d.message) setError(d.message)
-        // A node that emits nothing would make the prefetch loop spin forever.
+        // A node that emits nothing at all would make the prefetch spin forever.
         stalled.current = !d.events?.length
-        if (d.events?.length) {
-          setSteps((p) => [...p, ...d.events])
+
+        const keep = (d.events ?? []).filter(shown)
+        if (keep.length) {
+          setSteps((p) => [...p, ...keep])
           if (fresh) setIdx(0)
           else if (wantNext.current) setIdx((i) => i + 1)
+          wantNext.current = false
         }
-        wantNext.current = false
-        return d
       } finally {
         inflight.current = false
         setBusy(null)
       }
+
+      // Every event this node produced was skippable, so running it cost the
+      // presenter a press and showed nothing. Run the next one straight away.
+      if (d && d.status === 'paused' && !stalled.current && !(d.events ?? []).some(shown)) {
+        return advanceRef.current?.(false)
+      }
+      return d
     },
     [chosen]
   )
+
+  const advanceRef = useRef<typeof advance>(undefined)
+  advanceRef.current = advance
 
   const atEnd = idx >= steps.length - 1
   const canAdvance = !atEnd || status === 'paused'
