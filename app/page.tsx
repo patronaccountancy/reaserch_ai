@@ -130,7 +130,11 @@ export default function Page() {
           Multi-Step Research Summarizer Graph
         </h1>
 
-        <div className="mt-10 space-y-2">
+        <p className="mt-10 text-xs font-semibold uppercase tracking-widest text-neutral-600">
+          step 1 · choose a file
+        </p>
+
+        <div className="mt-4 space-y-2">
           {chosen.map((u) => (
             <div key={u.name} className="rounded-lg border border-neutral-600 bg-[--color-panel]">
               <div className="flex items-center gap-4 p-4">
@@ -207,7 +211,7 @@ export default function Page() {
 
       <div className="mt-8 flex-1">
         <p className="text-xs font-semibold uppercase tracking-widest text-neutral-600">
-          step {idx + 1} of {steps.length}
+          step {idx + 2} of {steps.length + 1}
           {busy && <span className="ml-2 animate-pulse text-emerald-500">{busy}</span>}
         </p>
         {ev && <Stage e={ev} />}
@@ -299,7 +303,7 @@ function Controls(p: {
           {p.auto ? 'Stop' : 'Run to end'}
         </button>
         <span className="ml-auto text-xs text-neutral-600">
-          {p.idx + 1}/{p.total}
+          {p.idx + 2}/{p.total + 1}
         </span>
         <button onClick={p.onRestart} className="text-xs text-neutral-500 hover:text-white">
           restart
