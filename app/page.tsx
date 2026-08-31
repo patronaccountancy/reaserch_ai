@@ -40,7 +40,9 @@ export default function Page() {
    * node can be computed in the background while they are still talking.
    */
   const advance = useCallback(
-    async (fresh: boolean) => {
+    // Explicit return type: this calls itself through advanceRef, and TypeScript
+    // cannot infer a type that is referenced inside its own return expression.
+    async (fresh: boolean): Promise<any> => {
       if (inflight.current) return
       inflight.current = true
       setBusy(fresh ? 'reading sources…' : 'thinking…')
