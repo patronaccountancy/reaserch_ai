@@ -130,7 +130,7 @@ export default function Page() {
           Multi-Step Research Summarizer Graph
         </h1>
 
-        <p className="mt-10 text-xs font-semibold uppercase tracking-widest text-neutral-600">
+        <p className="mt-10 text-sm font-semibold uppercase tracking-widest text-neutral-400">
           step 1 · choose a file
         </p>
 
@@ -210,7 +210,7 @@ export default function Page() {
       <Rail node={ev?.node} loops={loops} revision={revision} busy={busy} />
 
       <div className="mt-8 flex-1">
-        <p className="text-xs font-semibold uppercase tracking-widest text-neutral-600">
+        <p className="text-sm font-semibold uppercase tracking-widest text-neutral-400">
           step {idx + 2} of {steps.length + 1}
           {busy && <span className="ml-2 animate-pulse text-emerald-500">{busy}</span>}
         </p>
@@ -318,7 +318,7 @@ function Controls(p: {
 function Head({ tag, title }: { tag: string; title: string }) {
   return (
     <header className="mt-2">
-      <p className="font-mono text-xs uppercase tracking-widest text-neutral-500">{tag}</p>
+      <p className="font-mono text-sm uppercase tracking-widest text-neutral-400">{tag}</p>
       <h2 className="mt-2 text-3xl font-semibold tracking-tight text-white">{title}</h2>
     </header>
   )
