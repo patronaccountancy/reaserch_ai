@@ -112,8 +112,7 @@ const checkpointer = new MemorySaver()
 
 /**
  * The whole of fact-checking for ONE claim: gate 1, gate 2, gate 3, in order,
- * first failure wins. The fact_check node and /api/probe both call this, so
- * what an audience types into the probe runs the identical code path.
+ * first failure wins.
  */
 export async function checkClaim(
   claim: string,

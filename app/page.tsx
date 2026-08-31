@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Probe } from './probe'
 
 type Ev = { t: number; node: string; kind: string; [k: string]: any }
 type Src = { name: string; words: number; text: string }
@@ -222,8 +221,6 @@ export default function Page() {
               : 'Choose a file first'}
         </button>
         {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
-
-        <Probe uploads={chosen} />
       </main>
     )
 
