@@ -75,6 +75,15 @@ npm run trace               # runs the graph, prints the annotated trace, writes
 npm run trace -- --no-sabotage   # honest first pass, usually ends with 0 loop-backs
 ```
 
+## Documentation
+
+| Doc | What is in it |
+| --- | --- |
+| [docs/01-how-it-works.md](docs/01-how-it-works.md) | The graph, its nodes and state, both loop edges, interrupts and the checkpointer, the request lifecycle, the client |
+| [docs/02-fact-check.md](docs/02-fact-check.md) | The three gates in full, with the real code, what each catches and what each misses |
+| [docs/03-stack.md](docs/03-stack.md) | Every dependency and every file, what it does and why; and the traps that will bite you |
+| [docs/04-demo-and-jury.md](docs/04-demo-and-jury.md) | Running the demo, the recorded trace explained, and both jury answers |
+
 ## The pieces
 
 | File | What it is |

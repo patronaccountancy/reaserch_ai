@@ -154,6 +154,11 @@ export default function Page() {
         <h1 className="text-4xl font-semibold tracking-tight text-white">
           Multi-Step Research Summarizer Graph
         </h1>
+        <p className="mt-4 max-w-2xl text-base leading-relaxed text-neutral-400">
+          Summarises the documents you choose, then checks every claim it wrote back
+          against them. Anything it cannot ground in the text is sent back to be
+          rewritten, and the graph will not finish until nothing is left unsupported.
+        </p>
 
         <div className="mt-10 space-y-2">
           {chosen.map((u) => (
