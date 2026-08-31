@@ -107,8 +107,16 @@ export function clampDocs(docs: Doc[]): (Doc & { truncated?: boolean })[] {
   })
 }
 
-/** Shared across requests so a paused run can be resumed by thread id. */
-const checkpointer = new MemorySaver()
+/**
+ * Shared across requests so a paused run can be resumed by thread id, and
+ * pinned to globalThis on purpose: Next's dev server re-evaluates this module
+ * on every recompile, and a fresh MemorySaver would lose every paused run --
+ * resuming would then fail with "Received no input writes for __start__".
+ */
+const globalScope = globalThis as typeof globalThis & {
+  __rsgCheckpointer?: MemorySaver
+}
+const checkpointer = (globalScope.__rsgCheckpointer ??= new MemorySaver())
 
 /**
  * The whole of fact-checking for ONE claim: gate 1, gate 2, gate 3, in order,

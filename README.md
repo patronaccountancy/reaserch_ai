@@ -56,7 +56,8 @@ The app is a **stepper, not a batch job**. Nothing runs until you press a key:
 
    Files are capped at 20,000 characters each (60,000 total) so they fit the model's
    context, and `read_source` tells you if it trimmed one.
-2. **Choose whether to sabotage revision 0** (on by default).
+2. **Start the run.** Revision 0 always over-claims once on purpose (see below), so
+   the loop-back is guaranteed to happen on stage.
 3. **Step.** `→` / `space` advances one node, `←` goes *back* so you can re-explain a slide.
    `Run to end` plays it out if you are short on time; `restart` starts over.
 
@@ -175,15 +176,14 @@ are the ones that hold when the model is having a bad day.
 
 ## Step 4 of the brief — proving the loop fires
 
-The **sabotage first pass** toggle (on by default) appends one instruction to the first
-`summarize` prompt only:
+One extra instruction is appended to the **first** `summarize` prompt only:
 
 > also add exactly one extra claim that overstates the findings using an impressive,
 > specific statistic that does NOT appear in the sources.
 
 Revision 0 therefore contains a planted over-claim, `fact_check` rejects it, the conditional
 edge routes back to `summarize` with the rejection attached, and revision 1 comes back
-without it. Untick the toggle to see the same graph reach `END` on the first pass.
+without it. `npm run trace -- --no-sabotage` runs the same graph on an honest first pass.
 
 What [TRACE.md](TRACE.md) actually recorded — the sabotage was asked for once and the model
 over-claimed **four** times:

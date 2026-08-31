@@ -41,10 +41,13 @@ export async function POST(req: Request) {
       await graph.invoke(null, config)
     }
   } catch (err) {
-    return Response.json({
-      threadId, events, status: 'error', next: null,
-      message: (err as Error).message,
-    })
+    const raw = (err as Error).message
+    // A resume whose checkpoint is gone (server restarted mid-run) surfaces as
+    // this, which tells the presenter nothing useful.
+    const message = /no input writes for/i.test(raw)
+      ? 'This run is no longer on the server (it was restarted). Press restart and run again.'
+      : raw
+    return Response.json({ threadId, events, status: 'error', next: null, message })
   }
 
   const snap = await graph.getState(config)
