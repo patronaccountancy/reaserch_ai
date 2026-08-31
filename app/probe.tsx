@@ -12,7 +12,13 @@ const PROMPTS = [
  * The same three gates fact_check uses, driven by whatever the room shouts out.
  * Fastest way to answer "how does it decide?" — let someone try to sneak one past it.
  */
-export function Probe({ picked }: { picked: string[] }) {
+export function Probe({
+  picked,
+  uploads = [],
+}: {
+  picked: string[]
+  uploads?: { name: string; text: string }[]
+}) {
   const [claim, setClaim] = useState('')
   const [v, setV] = useState<any>(null)
   const [busy, setBusy] = useState(false)
@@ -25,7 +31,11 @@ export function Probe({ picked }: { picked: string[] }) {
       const res = await fetch('/api/probe', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ claim: text, selected: picked }),
+        body: JSON.stringify({
+          claim: text,
+          selected: picked,
+          uploads: uploads.map((u) => ({ name: u.name, text: u.text })),
+        }),
       })
       setV(await res.json())
     } catch {

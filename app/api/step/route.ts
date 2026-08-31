@@ -30,7 +30,11 @@ export async function POST(req: Request) {
         maxRevisions: MAX_REVISIONS,
       })
       await graph.invoke(
-        { overclaim: !!body.overclaim, selected: body.selected ?? [] },
+        {
+          overclaim: !!body.overclaim,
+          selected: body.selected ?? [],
+          uploads: body.uploads ?? [],
+        },
         config
       )
     } else {

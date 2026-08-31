@@ -49,6 +49,7 @@ export type Emit = (e: Omit<TraceEvent, 't'>) => void
 
 const S = Annotation.Root({
   selected: Annotation<string[]>,
+  uploads: Annotation<Doc[]>,
   overclaim: Annotation<boolean>,
   docs: Annotation<Doc[]>,
   corpus: Annotation<string>,
@@ -86,6 +87,24 @@ export async function loadSources(): Promise<Doc[]> {
   return Promise.all(
     files.map(async (name) => ({ name, text: await readFile(path.join(dir, name), 'utf8') }))
   )
+}
+
+/**
+ * A chosen file goes straight into the summariser prompt, so it has to fit the
+ * model's context. Cap per file and in total, and report the truncation rather
+ * than silently summarising only the first page.
+ */
+export const MAX_DOC_CHARS = 20_000
+export const MAX_CORPUS_CHARS = 60_000
+
+export function clampDocs(docs: Doc[]): (Doc & { truncated?: boolean })[] {
+  let budget = MAX_CORPUS_CHARS
+  return docs.map((d) => {
+    const limit = Math.min(MAX_DOC_CHARS, Math.max(0, budget))
+    const text = d.text.slice(0, limit)
+    budget -= text.length
+    return { name: d.name, text, truncated: text.length < d.text.length }
+  })
 }
 
 /** Shared across requests so a paused run can be resumed by thread id. */
@@ -174,14 +193,21 @@ export function buildGraph(emit: Emit, interactive = false) {
     // ---- node: read_source -------------------------------------------------
     .addNode('read_source', async (s: State) => {
       const all = await loadSources()
-      const pick = s.selected?.length ? all.filter((d) => s.selected.includes(d.name)) : all
-      const docs = pick.length ? pick : all
+      const fromDisk = s.selected?.length ? all.filter((d) => s.selected.includes(d.name)) : []
+      const uploaded = clampDocs(s.uploads ?? [])
+      // Fall back to the bundled sources only when nothing at all was chosen.
+      const docs = fromDisk.length || uploaded.length ? [...fromDisk, ...uploaded] : all
       const corpus = docs.map((d) => d.text).join('\n\n')
       emit({
         node: 'read_source',
         kind: 'loaded',
-        files: docs.map((d) => ({ name: d.name, words: d.text.trim().split(/\s+/).length })),
+        files: docs.map((d) => ({
+          name: d.name,
+          words: d.text.trim().split(/\s+/).length,
+          uploaded: uploaded.some((u) => u.name === d.name),
+        })),
         sentences: sentences(docs).length,
+        truncated: uploaded.filter((u) => u.truncated).map((u) => u.name),
       })
       return { docs, corpus, revision: 0, cursor: 0, verdicts: [], feedback: [] }
     })
@@ -312,11 +338,12 @@ export function buildGraph(emit: Emit, interactive = false) {
 export async function run(
   overclaim: boolean,
   emit: Emit,
-  selected: string[] = []
+  selected: string[] = [],
+  uploads: Doc[] = []
 ) {
   emit({ node: 'graph', kind: 'start', model: MODEL, overclaim, selected })
   const final = await buildGraph(emit).invoke(
-    { overclaim, selected },
+    { overclaim, selected, uploads },
     { recursionLimit: 200 }
   )
   emit({

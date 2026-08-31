@@ -1,4 +1,4 @@
-import { loadSources, checkClaim } from '@/lib/graph'
+import { loadSources, checkClaim, clampDocs } from '@/lib/graph'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -9,11 +9,13 @@ export const maxDuration = 120
  * and watch it be accepted or rejected against the documents.
  */
 export async function POST(req: Request) {
-  const { claim, selected = [] } = await req.json().catch(() => ({ claim: '' }))
+  const { claim, selected = [], uploads = [] } =
+    await req.json().catch(() => ({ claim: '' }))
   if (!claim?.trim()) return Response.json({ error: 'empty claim' }, { status: 400 })
 
   const all = await loadSources()
-  const docs = selected.length ? all.filter((d) => selected.includes(d.name)) : all
+  const fromDisk = selected.length ? all.filter((d) => selected.includes(d.name)) : []
+  const docs = [...fromDisk, ...clampDocs(uploads)]
 
   try {
     return Response.json(await checkClaim(String(claim).trim(), docs.length ? docs : all, 0))

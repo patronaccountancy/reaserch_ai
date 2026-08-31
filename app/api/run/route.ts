@@ -5,7 +5,8 @@ export const maxDuration = 300
 
 /** Streams the graph trace as newline-delimited JSON, one event per line. */
 export async function POST(req: Request) {
-  const { overclaim = true, selected = [] } = await req.json().catch(() => ({}))
+  const { overclaim = true, selected = [], uploads = [] } =
+    await req.json().catch(() => ({}))
   const enc = new TextEncoder()
 
   const stream = new ReadableStream({
@@ -13,7 +14,7 @@ export async function POST(req: Request) {
       const send = (e: Record<string, unknown>) =>
         c.enqueue(enc.encode(JSON.stringify({ t: Date.now(), ...e }) + '\n'))
       try {
-        await run(!!overclaim, send, selected)
+        await run(!!overclaim, send, selected, uploads)
       } catch (err) {
         send({ node: 'graph', kind: 'error', message: (err as Error).message })
       }

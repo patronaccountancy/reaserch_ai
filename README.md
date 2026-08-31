@@ -39,9 +39,20 @@ Overrides: `OLLAMA_HOST`, `OLLAMA_MODEL`, `SKIP_SETUP=1`. `npm run setup` runs i
 
 The app is a **stepper, not a batch job**. Nothing runs until you press a key:
 
-1. **Pick your sources.** Tick the files, preview any of them inline. Whatever you leave
-   out stops being provable — deselect the field trial and watch claims about outdoor
-   performance start failing.
+1. **Pick your sources.** Tick the bundled files, preview any of them inline, and/or
+   **add any `.txt` from anywhere on the machine** with the file picker — a classmate's
+   notes, a page pasted from a paper, anything. Uploaded files are read in the browser and
+   sent with the run; nothing is written to disk. Whatever you leave out stops being
+   provable — deselect the field trial and watch claims about outdoor performance fail.
+
+   Bringing an unseen document is the strongest way to show the checker is not tuned to the
+   demo. A one-paragraph Mars sample-return note dropped in cold gave: *"Tube 21 contained a
+   carbonate-rich mudstone weighing 14.9 grams"* → supported with citation; *"detected in 9
+   of the 12 tubes"* → gate 1, `9` is not in the file; *"proves life once existed on Mars"*
+   → gate 2, nothing accounts for `proves`, `life`, `existed`.
+
+   Files are capped at 20,000 characters each (60,000 total) so they fit the model's
+   context, and `read_source` tells you if it trimmed one.
 2. **Choose whether to sabotage revision 0** (on by default).
 3. **Step.** `→` / `space` advances one node, `←` goes *back* so you can re-explain a slide.
    `Run to end` plays it out if you are short on time; `restart` starts over.
