@@ -126,11 +126,11 @@ export default function Page() {
   if (status === 'setup')
     return (
       <main className="mx-auto max-w-4xl px-6 py-16">
-        <h1 className="text-6xl font-semibold tracking-tight text-white">
+        <h1 className="text-4xl font-semibold tracking-tight text-white">
           Multi-Step Research Summarizer Graph
         </h1>
 
-        <p className="mt-10 text-xl font-semibold uppercase tracking-widest text-neutral-400">
+        <p className="mt-10 text-xs font-semibold uppercase tracking-widest text-neutral-600">
           step 1 · choose a file
         </p>
 
@@ -210,7 +210,7 @@ export default function Page() {
       <Rail node={ev?.node} loops={loops} revision={revision} busy={busy} />
 
       <div className="mt-8 flex-1">
-        <p className="text-xl font-semibold uppercase tracking-widest text-neutral-400">
+        <p className="text-xs font-semibold uppercase tracking-widest text-neutral-600">
           step {idx + 2} of {steps.length + 1}
           {busy && <span className="ml-2 animate-pulse text-emerald-500">{busy}</span>}
         </p>
@@ -318,8 +318,8 @@ function Controls(p: {
 function Head({ tag, title }: { tag: string; title: string }) {
   return (
     <header className="mt-2">
-      <p className="font-mono text-lg uppercase tracking-widest text-neutral-400">{tag}</p>
-      <h2 className="mt-2 text-5xl font-semibold tracking-tight text-white">{title}</h2>
+      <p className="font-mono text-xs uppercase tracking-widest text-neutral-500">{tag}</p>
+      <h2 className="mt-2 text-3xl font-semibold tracking-tight text-white">{title}</h2>
     </header>
   )
 }
