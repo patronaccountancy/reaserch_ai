@@ -12,6 +12,7 @@ export default function Page() {
   const [chosen, setChosen] = useState<Src[]>([])
   const [preview, setPreview] = useState<string | null>(null)
   const [overclaim, setOverclaim] = useState(true)
+  const [setupStep, setSetupStep] = useState(0)
 
   const [status, setStatus] = useState<Status>('setup')
   const [threadId, setThreadId] = useState<string | null>(null)
@@ -82,6 +83,7 @@ export default function Page() {
   function restart() {
     autoRef.current = false
     setStatus('setup')
+    setSetupStep(0)
     setThreadId(null)
     setSteps([])
     setIdx(0)
@@ -106,7 +108,11 @@ export default function Page() {
           Multi-Step Research Summarizer Graph
         </h1>
 
-        <section className="mt-12">
+        <p className="mt-8 text-xs font-semibold uppercase tracking-widest text-neutral-600">
+          setup · step {setupStep + 1} of 2
+        </p>
+
+        <section className={setupStep === 0 ? 'mt-6' : 'hidden'}>
           <h2 className="text-sm font-semibold uppercase tracking-widest text-neutral-500">
             1 · Choose the sources
           </h2>
@@ -180,7 +186,7 @@ export default function Page() {
           </p>
         </section>
 
-        <section className="mt-10">
+        <section className={setupStep === 1 ? 'mt-6' : 'hidden'}>
           <h2 className="text-sm font-semibold uppercase tracking-widest text-neutral-500">
             2 · Sabotage the first pass?
           </h2>
@@ -204,17 +210,36 @@ export default function Page() {
           </label>
         </section>
 
-        <button
-          onClick={() => step(null)}
-          disabled={!chosen.length || !!busy}
-          className="mt-10 rounded-md bg-white px-6 py-3 font-medium text-black transition hover:bg-neutral-200 disabled:opacity-40"
-        >
-          {busy
-            ? 'starting…'
-            : chosen.length
-              ? `Start run with ${chosen.length} source${chosen.length === 1 ? '' : 's'}`
-              : 'Choose a file first'}
-        </button>
+        <div className="mt-10 flex items-center gap-3">
+          {setupStep === 1 && (
+            <button
+              onClick={() => setSetupStep(0)}
+              disabled={!!busy}
+              className="rounded-md border border-[--color-line] px-4 py-3 text-sm text-neutral-300 transition hover:border-neutral-600 disabled:opacity-30"
+            >
+              ← Back
+            </button>
+          )}
+          {setupStep === 0 ? (
+            <button
+              onClick={() => setSetupStep(1)}
+              disabled={!chosen.length}
+              className="rounded-md bg-white px-6 py-3 font-medium text-black transition hover:bg-neutral-200 disabled:opacity-40"
+            >
+              {chosen.length
+                ? `Next → (${chosen.length} source${chosen.length === 1 ? '' : 's'})`
+                : 'Choose a file first'}
+            </button>
+          ) : (
+            <button
+              onClick={() => step(null)}
+              disabled={!!busy}
+              className="rounded-md bg-white px-6 py-3 font-medium text-black transition hover:bg-neutral-200 disabled:opacity-40"
+            >
+              {busy ? 'starting…' : 'Start run →'}
+            </button>
+          )}
+        </div>
         {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
       </main>
     )
